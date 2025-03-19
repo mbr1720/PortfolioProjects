@@ -1,0 +1,725 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import OneHotEncoder
+import pickle
+import os
+
+
+class AdvancedCreativeStrategyModel:
+    """
+    Advanced model for creative strategy optimization.
+    """
+
+    def __init__(self):
+        self.models = {}
+        self.encoders = {}
+        self.feature_importance = {}
+        self.audience_models = {}
+        self.categorical_features = [
+            'platform', 'content_type', 'campaign_objective',
+            'audience_segment', 'creative_theme', 'cta_type', 'placement_type'
+        ]
+        self.numerical_features = [
+            'video_length', 'text_length', 'num_hashtags', 'budget'
+        ]
+        self.temporal_features = [
+            'publication_date', 'campaign_start', 'campaign_end'
+        ]
+        self.target_metrics = [
+            'engagement_rate', 'click_through_rate', 'conversion_rate'
+        ]
+
+    def preprocess_data(self, data):
+        """Preprocess data for model training."""
+        # Handle categorical features
+        for feature in self.categorical_features:
+            if feature not in self.encoders:
+                encoder = OneHotEncoder(sparse=False, handle_unknown='ignore')
+                encoder.fit(data[[feature]])
+                self.encoders[feature] = encoder
+
+            encoded = self.encoders[feature].transform(data[[feature]])
+            feature_names = [f"{feature}_{cat}" for cat in self.encoders[feature].categories_[0]]
+            encoded_df = pd.DataFrame(encoded, columns=feature_names)
+            data = pd.concat([data, encoded_df], axis=1)
+            data = data.drop(columns=[feature])
+
+        # Extract temporal features
+        for feature in self.temporal_features:
+            if feature in data.columns:
+                data[f"{feature}_day"] = data[feature].dt.day
+                data[f"{feature}_month"] = data[feature].dt.month
+                data[f"{feature}_weekday"] = data[feature].dt.weekday
+                data = data.drop(columns=[feature])
+
+        return data
+
+    def train_models(self, data):
+        """Train models for each target metric."""
+        try:
+            print("Preprocessing data...")
+            preprocessed_data = self.preprocess_data(data)
+
+            for target in self.target_metrics:
+                print(f"Training model for {target}...")
+                if target in preprocessed_data.columns:
+                    X = preprocessed_data.drop(
+                        columns=[col for col in self.target_metrics if col in preprocessed_data.columns])
+                    y = preprocessed_data[target]
+
+                    print(f"X shape: {X.shape}, y shape: {y.shape}")
+
+                    model = RandomForestRegressor(n_estimators=100, random_state=42)
+                    model.fit(X, y)
+
+                    self.models[target] = model
+                    self.feature_importance[target] = dict(zip(X.columns, model.feature_importances_))
+
+                    print(f"Model trained for {target}")
+                else:
+                    print(f"Warning: Target {target} not found in data")
+        except Exception as e:
+            print(f"Error in train_models: {e}")
+            print(f"Data columns: {data.columns.tolist()}")
+
+    def train_audience_models(self, data):
+        """Train separate models for different audience segments."""
+        for audience in data['audience_segment'].unique():
+            audience_data = data[data['audience_segment'] == audience]
+            if len(audience_data) > 20:  # Ensure enough data
+                self.audience_models[audience] = AdvancedCreativeStrategyModel()
+                self.audience_models[audience].train_models(audience_data)
+
+    def predict(self, content_data, target_metric):
+        """Predict performance for a single content item."""
+        if target_metric not in self.models:
+            return None
+
+        # Preprocess the content data
+        content_df = pd.DataFrame([content_data])
+        preprocessed_content = self.preprocess_data(content_df)
+
+        # Make prediction
+        prediction = self.models[target_metric].predict(preprocessed_content)[0]
+        return prediction
+
+    def predict_all_metrics(self, content_data):
+        """Predict all available metrics for a content item."""
+        predictions = {}
+        for metric in self.models:
+            predictions[metric] = self.predict(content_data, metric)
+        return predictions
+
+    def multi_objective_optimization(self, base_content, optimization_params, target_weights):
+        """
+        Optimize content for multiple objectives.
+
+        Args:
+            base_content (dict): Base content parameters
+            optimization_params (list): Parameters to optimize
+            target_weights (dict): Weights for different target metrics
+
+        Returns:
+            tuple: (optimized content, performance metrics, weighted score)
+        """
+        # Start with base content
+        best_content = base_content.copy()
+        best_metrics = self.predict_all_metrics(best_content)
+        best_score = self._calculate_weighted_score(best_metrics, target_weights)
+
+        # Define parameter ranges
+        param_ranges = {
+            'content_type': ['image', 'video', 'carousel', 'reel'],
+            'text_length': [80, 100, 125, 150, 175, 200],
+            'num_hashtags': [0, 1, 2, 3, 4, 5, 6],
+            'video_length': [15, 30, 45, 60, 90],
+            'cta_type': ['learn_more', 'shop_now', 'sign_up', 'follow']
+        }
+
+        # Simple grid search
+        for param in optimization_params:
+            if param in param_ranges:
+                best_param_value = best_content[param]
+
+                for value in param_ranges[param]:
+                    # Create variant with this parameter value
+                    variant = best_content.copy()
+                    variant[param] = value
+
+                    # Predict performance
+                    metrics = self.predict_all_metrics(variant)
+                    score = self._calculate_weighted_score(metrics, target_weights)
+
+                    # Update best if improved
+                    if score > best_score:
+                        best_content = variant
+                        best_metrics = metrics
+                        best_score = score
+
+        return best_content, best_metrics, best_score
+
+    def _calculate_weighted_score(self, metrics, weights):
+        """Calculate weighted score from metrics and weights."""
+        score = 0
+        for metric, weight in weights.items():
+            if metric in metrics and metrics[metric] is not None:
+                score += metrics[metric] * weight
+        return score
+
+    def generate_ab_test_variants(self, base_content, test_param, n_variants=2):
+        """Generate variants for A/B testing."""
+        variants = [base_content.copy()]
+
+        # Define parameter ranges
+        param_ranges = {
+            'content_type': ['image', 'video', 'carousel', 'reel'],
+            'text_length': [80, 100, 125, 150, 175, 200],
+            'num_hashtags': [0, 1, 2, 3, 4, 5, 6],
+            'video_length': [15, 30, 45, 60, 90],
+            'cta_type': ['learn_more', 'shop_now', 'sign_up', 'follow']
+        }
+
+        if test_param in param_ranges:
+            # Get current value
+            current_value = base_content[test_param]
+
+            # Get other possible values
+            other_values = [v for v in param_ranges[test_param] if v != current_value]
+
+            # Create variants
+            for i in range(min(n_variants, len(other_values))):
+                variant = base_content.copy()
+                variant[test_param] = other_values[i]
+                variants.append(variant)
+
+        return variants
+
+    def save_models(self, directory):
+        """Save models to disk."""
+        os.makedirs(directory, exist_ok=True)
+
+        # Save main models
+        for metric, model in self.models.items():
+            with open(f"{directory}/{metric}_model.pkl", "wb") as f:
+                pickle.dump(model, f)
+
+        # Save encoders
+        with open(f"{directory}/encoders.pkl", "wb") as f:
+            pickle.dump(self.encoders, f)
+
+        # Save feature importance
+        with open(f"{directory}/feature_importance.pkl", "wb") as f:
+            pickle.dump(self.feature_importance, f)
+
+        print(f"Models saved to {directory}")
+
+    def load_models(self, directory):
+        """Load models from disk."""
+        # Load main models
+        for metric in self.target_metrics:
+            model_path = f"{directory}/{metric}_model.pkl"
+            if os.path.exists(model_path):
+                with open(model_path, "rb") as f:
+                    self.models[metric] = pickle.load(f)
+
+        # Load encoders
+        encoders_path = f"{directory}/encoders.pkl"
+        if os.path.exists(encoders_path):
+            with open(encoders_path, "rb") as f:
+                self.encoders = pickle.load(f)
+
+        # Load feature importance
+        fi_path = f"{directory}/feature_importance.pkl"
+        if os.path.exists(fi_path):
+            with open(fi_path, "rb") as f:
+                self.feature_importance = pickle.load(f)
+
+        print(f"Models loaded from {directory}")
+
+
+# Sample data for model training
+def generate_sample_data(n_samples=100):
+    """Generate sample data for demonstration."""
+    platforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'tiktok']
+    content_types = ['image', 'video', 'carousel', 'reel']
+    objectives = ['awareness', 'consideration', 'conversion']
+    audiences = ['general', 'young_adults', 'professionals', 'parents']
+    themes = ['informational', 'entertaining', 'inspirational', 'promotional']
+    cta_types = ['learn_more', 'shop_now', 'sign_up', 'follow']
+    placements = ['feed', 'stories', 'explore', 'search']
+
+    data = []
+    for _ in range(n_samples):
+        platform = np.random.choice(platforms)
+        content_type = np.random.choice(content_types)
+
+        # Define ranges based on content type
+        if content_type == 'video' or content_type == 'reel':
+            video_length = np.random.choice([15, 30, 45, 60, 90])
+        else:
+            video_length = 0
+
+        text_length = np.random.randint(50, 250)
+        num_hashtags = np.random.randint(0, 10)
+        budget = np.random.randint(500, 5000)
+
+        # Generate random dates
+        base_date = pd.Timestamp('2023-01-01')
+        campaign_start = base_date + pd.Timedelta(days=np.random.randint(0, 180))
+        campaign_end = campaign_start + pd.Timedelta(days=np.random.randint(7, 60))
+        pub_date = campaign_start + pd.Timedelta(days=np.random.randint(0, (campaign_end - campaign_start).days))
+
+        # Create sample row
+        row = {
+            'platform': platform,
+            'content_type': content_type,
+            'video_length': video_length,
+            'text_length': text_length,
+            'num_hashtags': num_hashtags,
+            'budget': budget,
+            'campaign_objective': np.random.choice(objectives),
+            'audience_segment': np.random.choice(audiences),
+            'creative_theme': np.random.choice(themes),
+            'cta_type': np.random.choice(cta_types),
+            'placement_type': np.random.choice(placements),
+            'publication_date': pub_date,
+            'campaign_start': campaign_start,
+            'campaign_end': campaign_end
+        }
+
+        # Generate performance metrics (with some relations to parameters)
+        base_engagement = 0.05
+        if platform == 'instagram':
+            base_engagement += 0.02
+        if content_type == 'video':
+            base_engagement += 0.01
+        if num_hashtags > 5:
+            base_engagement += 0.005
+
+        row['engagement_rate'] = max(0, min(1, base_engagement + np.random.normal(0, 0.01)))
+
+        base_ctr = 0.03
+        if content_type == 'video':
+            base_ctr += 0.01
+        if row['cta_type'] == 'shop_now':
+            base_ctr += 0.01
+
+        row['click_through_rate'] = max(0, min(1, base_ctr + np.random.normal(0, 0.01)))
+
+        base_conversion = 0.02
+        if row['campaign_objective'] == 'conversion':
+            base_conversion += 0.01
+        if row['cta_type'] == 'shop_now':
+            base_conversion += 0.005
+
+        row['conversion_rate'] = max(0, min(1, base_conversion + np.random.normal(0, 0.01)))
+
+        data.append(row)
+
+    return pd.DataFrame(data)
+
+
+# Initialize and train the model
+def init_model():
+    try:
+        # Generate sample data
+        print("Generating sample data...")
+        sample_data = generate_sample_data(200)
+        print(f"Sample data shape: {sample_data.shape}")
+        print(f"Sample data columns: {sample_data.columns.tolist()}")
+
+        # Initialize the model
+        print("Initializing model...")
+        model = AdvancedCreativeStrategyModel()
+
+        # Train the model with more detailed error handling
+        print("Training models...")
+        model.train_models(sample_data)
+
+        print("Training audience models...")
+        model.train_audience_models(sample_data)
+
+        return model
+    except Exception as e:
+        print(f"Error in init_model: {e}")
+        # Return a basic untrained model to avoid completely failing
+        return AdvancedCreativeStrategyModel()
+
+
+# Main execution
+if __name__ == "__main__":
+    # Initialize the model
+    adv_model = init_model()
+
+    # Example base content
+    base_content = {
+        'platform': 'instagram',
+        'content_type': 'image',
+        'video_length': 0,
+        'text_length': 150,
+        'num_hashtags': 5,
+        'budget': 1000,
+        'campaign_objective': 'consideration',
+        'audience_segment': 'young_adults',
+        'creative_theme': 'entertaining',
+        'cta_type': 'learn_more',
+        'placement_type': 'feed',
+        'publication_date': pd.Timestamp('2023-06-15 12:00:00'),
+        'campaign_start': pd.Timestamp('2023-06-01'),
+        'campaign_end': pd.Timestamp('2023-06-30')
+    }
+
+    # Multi-objective optimization
+    target_weights = {
+        'engagement_rate': 0.4,
+        'click_through_rate': 0.3,
+        'conversion_rate': 0.3
+    }
+
+    optimization_params = ['content_type', 'text_length', 'num_hashtags', 'cta_type']
+
+    optimized_content, performance_metrics, weighted_score = adv_model.multi_objective_optimization(
+        base_content, optimization_params, target_weights
+    )
+
+    print("\nMulti-Objective Optimization Results:")
+    print(f"Optimized content parameters: {optimized_content}")
+    print(f"Performance metrics: {performance_metrics}")
+    print(f"Weighted score: {weighted_score:.4f}")
+
+    # Generate A/B test variants
+    variants = adv_model.generate_ab_test_variants(base_content, 'content_type', n_variants=3)
+
+    print("\nA/B Test Variants:")
+    for i, variant in enumerate(variants, 1):
+        print(f"Variant {i}: {variant}")
+
+    # Save models
+    adv_model.save_models('advanced_models')
+
+
+class ContentRecommendationEngine:
+    """
+    A recommendation engine that leverages the predictive models to suggest
+    optimal content strategies for new campaigns.
+    """
+
+    def __init__(self, model=None):
+        self.model = model or AdvancedCreativeStrategyModel()
+        self.content_templates = {}
+        self.audience_insights = {}
+        self.platform_best_practices = {
+            'facebook': {
+                'optimal_video_length': 60,
+                'optimal_text_length': 125,
+                'recommended_hashtags': 0,
+                'best_content_types': ['video', 'image']
+            },
+            'instagram': {
+                'optimal_video_length': 30,
+                'optimal_text_length': 150,
+                'recommended_hashtags': 5,
+                'best_content_types': ['image', 'carousel', 'reel']
+            },
+            'twitter': {
+                'optimal_video_length': 45,
+                'optimal_text_length': 100,
+                'recommended_hashtags': 2,
+                'best_content_types': ['image', 'video']
+            },
+            'linkedin': {
+                'optimal_video_length': 90,
+                'optimal_text_length': 200,
+                'recommended_hashtags': 3,
+                'best_content_types': ['image', 'article']
+            },
+            'tiktok': {
+                'optimal_video_length': 15,
+                'optimal_text_length': 80,
+                'recommended_hashtags': 4,
+                'best_content_types': ['video', 'reel']
+            }
+        }
+
+    def load_content_templates(self, templates_data):
+        """
+        Load content templates from data.
+
+        Args:
+            templates_data (dict): Dictionary of content templates by type
+        """
+        self.content_templates = templates_data
+
+    def get_recommended_content_strategy(self, campaign_details):
+        """
+        Get recommended content strategy based on campaign details.
+
+        Args:
+            campaign_details (dict): Campaign details including platform, audience, objective
+
+        Returns:
+            dict: Recommended content strategy
+        """
+        # Extract campaign details
+        platform = campaign_details.get('platform', 'instagram')
+        audience = campaign_details.get('audience_segment', 'general')
+        objective = campaign_details.get('campaign_objective', 'engagement')
+
+        # Start with platform best practices
+        if platform in self.platform_best_practices:
+            recommendation = self.platform_best_practices[platform].copy()
+        else:
+            recommendation = {
+                'optimal_video_length': 60,
+                'optimal_text_length': 150,
+                'recommended_hashtags': 3,
+                'best_content_types': ['image', 'video']
+            }
+
+        # Adjust based on audience if we have audience-specific model
+        if audience in self.model.audience_models:
+            # We could use the audience model to refine recommendations
+            pass
+
+        # Adjust based on objective
+        if objective == 'conversion':
+            # For conversion objectives, prioritize clear CTAs
+            recommendation['cta_priority'] = 'high'
+            recommendation['recommended_cta_types'] = ['sign_up', 'shop_now', 'learn_more']
+        elif objective == 'awareness':
+            # For awareness, prioritize engaging content
+            recommendation['cta_priority'] = 'low'
+            recommendation['recommended_cta_types'] = ['follow', 'learn_more']
+
+        # If we have trained models, refine with model predictions
+        if hasattr(self.model, 'models') and self.model.models:
+            # Create a base content template
+            base_content = {
+                'platform': platform,
+                'content_type': recommendation['best_content_types'][0],
+                'video_length': recommendation['optimal_video_length'],
+                'text_length': recommendation['optimal_text_length'],
+                'num_hashtags': recommendation['recommended_hashtags'],
+                'campaign_objective': objective,
+                'audience_segment': audience,
+                'creative_theme': 'general',
+                'cta_type': recommendation.get('recommended_cta_types', ['learn_more'])[0],
+                'placement_type': 'feed',
+                'publication_date': pd.Timestamp('2023-06-15 12:00:00'),
+                'campaign_start': pd.Timestamp('2023-06-01'),
+                'campaign_end': pd.Timestamp('2023-06-30')
+            }
+
+            # Optimize content based on model
+            try:
+                optimization_params = ['content_type', 'text_length', 'num_hashtags', 'cta_type']
+
+                if 'engagement_rate' in self.model.models:
+                    target_weights = {
+                        'engagement_rate': 0.4,
+                        'click_through_rate': 0.3,
+                        'conversion_rate': 0.3
+                    }
+
+                    # Adjust weights based on objective
+                    if objective == 'conversion':
+                        target_weights = {
+                            'engagement_rate': 0.2,
+                            'click_through_rate': 0.3,
+                            'conversion_rate': 0.5
+                        }
+                    elif objective == 'awareness':
+                        target_weights = {
+                            'engagement_rate': 0.6,
+                            'click_through_rate': 0.3,
+                            'conversion_rate': 0.1
+                        }
+
+                    # Only use available targets
+                    available_targets = set(self.model.models.keys()) & set(target_weights.keys())
+                    target_weights = {k: target_weights[k] for k in available_targets}
+
+                    if available_targets:
+                        optimized_content, performance_metrics, _ = self.model.multi_objective_optimization(
+                            base_content, optimization_params, target_weights
+                        )
+
+                        # Update recommendation with optimized parameters
+                        recommendation['optimal_video_length'] = optimized_content.get('video_length', recommendation[
+                            'optimal_video_length'])
+                        recommendation['optimal_text_length'] = optimized_content.get('text_length', recommendation[
+                            'optimal_text_length'])
+                        recommendation['recommended_hashtags'] = optimized_content.get('num_hashtags', recommendation[
+                            'recommended_hashtags'])
+                        recommendation['best_content_types'] = [
+                            optimized_content.get('content_type', recommendation['best_content_types'][0])]
+                        recommendation['recommended_cta_types'] = [optimized_content.get('cta_type', recommendation.get(
+                            'recommended_cta_types', ['learn_more'])[0])]
+                        recommendation['predicted_performance'] = performance_metrics
+            except Exception as e:
+                print(f"Error optimizing content: {e}")
+
+        # Add best day and time if we have that data
+        if hasattr(self.model, 'feature_importance') and self.model.feature_importance is not None:
+            # For simplicity, we're using predefined values
+            recommendation['best_day'] = 'Wednesday'
+            recommendation['best_time'] = 'afternoon'
+
+        return recommendation
+
+    def generate_content_suggestions(self, campaign_details, num_suggestions=3):
+        """
+        Generate specific content suggestions.
+
+        Args:
+            campaign_details (dict): Campaign details
+            num_suggestions (int): Number of suggestions to generate
+
+        Returns:
+            list: Content suggestions
+        """
+        # Get recommended strategy
+        strategy = self.get_recommended_content_strategy(campaign_details)
+
+        # Generate suggestions
+        suggestions = []
+
+        # Get content templates
+        content_type = strategy['best_content_types'][0]
+        templates = self.content_templates.get(content_type, [])
+
+        if not templates:
+            # Default templates if none available
+            templates = [
+                {
+                    'title': 'Default Template',
+                    'description': 'A basic template for {content_type} content.',
+                    'structure': [
+                        'Hook - Attention-grabbing opening',
+                        'Value - Why this matters to the audience',
+                        'CTA - Clear call to action'
+                    ]
+                }
+            ]
+
+        # Generate suggestions from templates
+        for i in range(min(num_suggestions, len(templates))):
+            template = templates[i]
+
+            # Create a suggestion
+            suggestion = {
+                'title': template['title'],
+                'description': template['description'].format(content_type=content_type),
+                'structure': template['structure'],
+                'recommended_parameters': {
+                    'content_type': content_type,
+                    'video_length': strategy['optimal_video_length'],
+                    'text_length': strategy['optimal_text_length'],
+                    'num_hashtags': strategy['recommended_hashtags'],
+                    'cta_type': strategy.get('recommended_cta_types', ['learn_more'])[0]
+                },
+                'best_day': strategy.get('best_day', 'Wednesday'),
+                'best_time': strategy.get('best_time', 'afternoon')
+            }
+
+            suggestions.append(suggestion)
+
+        return suggestions
+
+
+# Example usage of the recommendation engine
+if __name__ == "__main__":
+    # Initialize the recommendation engine with our advanced model
+    recommendation_engine = ContentRecommendationEngine(adv_model)
+
+    # Load content templates
+    content_templates = {
+        'image': [
+            {
+                'title': 'Product Showcase',
+                'description': 'A template for showcasing products with {content_type} content.',
+                'structure': [
+                    'Eye-catching product image',
+                    'Benefit-focused caption',
+                    'Price and availability information',
+                    'Clear CTA to purchase'
+                ]
+            },
+            {
+                'title': 'Lifestyle Content',
+                'description': 'A template for lifestyle {content_type} content.',
+                'structure': [
+                    'Authentic photo of product in use',
+                    'Relatable caption about lifestyle benefits',
+                    'Mention of product features naturally',
+                    'Subtle CTA to learn more'
+                ]
+            }
+        ],
+        'video': [
+            {
+                'title': 'Product Demo',
+                'description': 'A template for demonstrating products with {content_type} content.',
+                'structure': [
+                    'Attention-grabbing first 3 seconds',
+                    'Clear demonstration of product benefits',
+                    'Testimonial or social proof',
+                    'Strong CTA with sense of urgency'
+                ]
+            },
+            {
+                'title': 'Brand Story',
+                'description': 'A template for brand storytelling with {content_type} content.',
+                'structure': [
+                    'Emotional hook opening',
+                    'Brief brand story or mission',
+                    'Connection to audience values',
+                    'Invitation to join the brand community'
+                ]
+            }
+        ]
+    }
+
+    recommendation_engine.load_content_templates(content_templates)
+
+    # Example campaign details
+    campaign_details = {
+        'platform': 'instagram',
+        'audience_segment': 'young_adults',
+        'campaign_objective': 'conversion',
+        'product_category': 'fashion',
+        'budget_level': 'medium'
+    }
+
+    # Get content strategy
+    strategy = recommendation_engine.get_recommended_content_strategy(campaign_details)
+
+    print("\nRecommended Content Strategy:")
+    print(f"Platform: {campaign_details['platform']}")
+    print(f"Audience: {campaign_details['audience_segment']}")
+    print(f"Objective: {campaign_details['campaign_objective']}")
+    print(f"Best content type: {strategy['best_content_types'][0]}")
+    print(f"Optimal video length: {strategy['optimal_video_length']} seconds")
+    print(f"Optimal text length: {strategy['optimal_text_length']} characters")
+    print(f"Recommended hashtags: {strategy['recommended_hashtags']}")
+    if 'recommended_cta_types' in strategy:
+        print(f"Recommended CTA type: {strategy['recommended_cta_types'][0]}")
+    if 'best_day' in strategy:
+        print(f"Best day to post: {strategy['best_day']}")
+    if 'best_time' in strategy:
+        print(f"Best time to post: {strategy['best_time']}")
+
+    # Generate content suggestions
+    suggestions = recommendation_engine.generate_content_suggestions(campaign_details)
+
+    print("\nContent Suggestions:")
+    for i, suggestion in enumerate(suggestions, 1):
+        print(f"\nSuggestion {i}: {suggestion['title']}")
+        print(f"Description: {suggestion['description']}")
+        print("Structure:")
+        for item in suggestion['structure']:
+            print(f"- {item}")
+        print("Recommended Parameters:")
+        for param, value in suggestion['recommended_parameters'].items():
+            print(f"- {param}: {value}")
